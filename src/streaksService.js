@@ -10,58 +10,57 @@ function getYesterday() {
   return d.toISOString().slice(0, 10);
 }
 
-function updateStreak(userId, callback) {
+function updateStreak(userId) {
   const today = getToday();
   const yesterday = getYesterday();
 
-  db.get(`SELECT * FROM users WHERE user_id=?`, [userId], (err, row) => {
-    if (err) return callback(err);
+  const row = db
+    .prepare(`SELECT * FROM users WHERE user_id = ?`)
+    .get(userId);
 
-    if (!row) {
-      db.run(
-        `INSERT INTO users (user_id, streak, longest_streak, last_post_date) VALUES (?, 1, 1, ?)`,
-        [userId, today],
-        function (err) {
-          if (err) return callback(err);
-          callback(null, { streak: 1, longest: 1, isNew: true });
-        },
-      );
-      return;
-    }
+  // 🆕 New user
+  if (!row) {
+    db.prepare(`
+      INSERT INTO users (user_id, streak, longest_streak, last_post_date)
+      VALUES (?, 1, 1, ?)
+    `).run(userId, today);
 
-    // already counted today
-    if (row.last_post_date === today) {
-      return callback(null, { ignored: true, streak: row.streak });
-    }
+    return { streak: 1, longest: 1, isNew: true };
+  }
 
-    let newStreak = 1;
-    if (row.last_post_date === yesterday) {
-      newStreak = row.streak + 1;
-    }
+  // 🚫 Already counted today
+  if (row.last_post_date === today) {
+    return { ignored: true, streak: row.streak };
+  }
 
-    const longest = Math.max(row.longest_streak, newStreak);
+  let newStreak = 1;
 
-    db.run(
-      `
-        UPDATE users
-        SET streak=?, longest_streak=?, last_post_date=?
-        WHERE user_id=?
-      `,
-      [newStreak, longest, today, userId],
-      function (err) {
-        if (err) return callback(err);
-        callback(null, { streak: newStreak, longest });
-      },
-    );
-  });
+  // 🔥 Continue streak
+  if (row.last_post_date === yesterday) {
+    newStreak = row.streak + 1;
+  }
+
+  const longest = Math.max(row.longest_streak, newStreak);
+
+  db.prepare(`
+    UPDATE users
+    SET streak = ?, longest_streak = ?, last_post_date = ?
+    WHERE user_id = ?
+  `).run(newStreak, longest, today, userId);
+
+  return { streak: newStreak, longest };
 }
 
-function getLeaderboard(callback) {
-  db.all(`SELECT user_id, streak FROM users ORDER BY streak DESC`, callback);
+function getLeaderboard() {
+  return db
+    .prepare(`SELECT user_id, streak FROM users ORDER BY streak DESC`)
+    .all();
 }
 
-function getUser(userId, callback) {
-  db.get(`SELECT * FROM users WHERE user_id=?`, [userId], callback);
+function getUser(userId) {
+  return db
+    .prepare(`SELECT * FROM users WHERE user_id = ?`)
+    .get(userId);
 }
 
 module.exports = {
