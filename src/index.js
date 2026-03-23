@@ -34,11 +34,23 @@ client.on("messageCreate", async (message) => {
     message.attachments.size === 0
   ) {
     try {
-      return await message.reply(
-        "Invalid format! Post a screenshot with the 'question' keyword and an image."
+      const reply = await message.reply(
+        `Please include a screenshot and start your message with the word "Question".`
       );
+      
+      // Delete both messages after 2 seconds
+      setTimeout(async () => {
+        try {
+          await message.delete();
+          await reply.delete();
+        } catch (err) {
+          console.error(`Failed to delete messages: ${err.message}`);
+        }
+      }, 2000);
+      
+      return;
     } catch (err) {
-      console.error(`Failed to send reply: ${err.message}`);
+      console.error(`Failed to handle invalid format: ${err.message}`);
       return;
     }
   }
