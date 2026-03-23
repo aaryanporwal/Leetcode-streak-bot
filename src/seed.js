@@ -14,7 +14,7 @@ const users = [
   { userId: "1484519601038430361", streak: 2, longestStreak: 2, lastPostDate: "2026-03-23" },
   { userId: "570304143529476106", streak: 1, longestStreak: 1, lastPostDate: "2026-03-23" },
   { userId: "1392244421554081846", streak: 1, longestStreak: 1, lastPostDate: "2026-03-23" },
-];
+].map(u => ({ ...u, questionsSolved: Math.max(1, u.streak) }));
 
 if (!users.length) {
   console.log("⚠️  No users to seed. Edit the `users` array in src/seed.js first.");
@@ -22,18 +22,19 @@ if (!users.length) {
 }
 
 const upsert = db.prepare(`
-  INSERT INTO users (user_id, streak, longest_streak, last_post_date)
-  VALUES (?, ?, ?, ?)
+  INSERT INTO users (user_id, streak, longest_streak, last_post_date, questions_solved)
+  VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     streak = excluded.streak,
     longest_streak = excluded.longest_streak,
-    last_post_date = excluded.last_post_date
+    last_post_date = excluded.last_post_date,
+    questions_solved = excluded.questions_solved
 `);
 
 const insertMany = db.transaction((entries) => {
   for (const u of entries) {
-    upsert.run(u.userId, u.streak, u.longestStreak, u.lastPostDate);
-    console.log(`✅ Upserted ${u.userId} — streak: ${u.streak}, longest: ${u.longestStreak}`);
+    upsert.run(u.userId, u.streak, u.longestStreak, u.lastPostDate, u.questionsSolved);
+    console.log(`✅ Upserted ${u.userId} — streak: ${u.streak}, solved: ${u.questionsSolved}`);
   }
 });
 
