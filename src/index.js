@@ -99,6 +99,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       `📊 **Profile for <@${user.id}>**\n` +
       `🔥 Current Streak: **${row.streak}** day(s)\n` +
       `🏆 Longest Streak: **${row.longest_streak}** day(s)\n` +
+      `📝 Questions Solved: **${row.questions_solved}**\n` +
       `📅 Last Post: **${row.last_post_date}**`
     );
   }
@@ -115,7 +116,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .slice(0, 10)
       .map((r, i) => {
         const medal = medals[i] ?? `${i + 1}.`;
-        return `${medal} <@${r.user_id}> — **${r.streak}** day(s)`;
+        return `${medal} <@${r.user_id}> — **${r.streak}** day(s) | **${r.questions_solved}** solved`;
       })
       .join("\n");
 

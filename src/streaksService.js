@@ -21,15 +21,18 @@ function updateStreak(userId) {
   // 🆕 New user
   if (!row) {
     db.prepare(`
-      INSERT INTO users (user_id, streak, longest_streak, last_post_date)
-      VALUES (?, 1, 1, ?)
+      INSERT INTO users (user_id, streak, longest_streak, last_post_date, questions_solved)
+      VALUES (?, 1, 1, ?, 1)
     `).run(userId, today);
 
     return { streak: 1, longest: 1, isNew: true };
   }
 
-  // 🚫 Already counted today
+  // 🚫 Already counted today — but still count the question
   if (row.last_post_date === today) {
+    db.prepare(`
+      UPDATE users SET questions_solved = questions_solved + 1 WHERE user_id = ?
+    `).run(userId);
     return { ignored: true, streak: row.streak };
   }
 
@@ -44,7 +47,7 @@ function updateStreak(userId) {
 
   db.prepare(`
     UPDATE users
-    SET streak = ?, longest_streak = ?, last_post_date = ?
+    SET streak = ?, longest_streak = ?, last_post_date = ?, questions_solved = questions_solved + 1
     WHERE user_id = ?
   `).run(newStreak, longest, today, userId);
 
@@ -53,7 +56,7 @@ function updateStreak(userId) {
 
 function getLeaderboard() {
   return db
-    .prepare(`SELECT user_id, streak FROM users ORDER BY streak DESC`)
+    .prepare(`SELECT user_id, streak, questions_solved FROM users ORDER BY streak DESC`)
     .all();
 }
 
