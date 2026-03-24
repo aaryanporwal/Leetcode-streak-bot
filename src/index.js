@@ -27,7 +27,9 @@ client.once(Events.ClientReady, (readyClient) => {
 // ─── Message: streak tracking ─────────────────────────────────────────────── 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-  if (message.channel.id !== "1483360122104315997") return;
+  const allowedChannels = ["1483360122104315997", "805454591990824961"];
+  if (!allowedChannels.includes(message.channel.id)) return;
+
 
   if (
     !message.content.toLowerCase().includes("question") ||
@@ -57,6 +59,14 @@ client.on("messageCreate", async (message) => {
 
   // better-sqlite3 is synchronous — no callback needed
   const result = updateStreak(message.author.id);
+
+  // React with a fire emoji
+  try {
+    await message.react("🔥");
+  } catch (err) {
+    console.error(`Failed to react to message: ${err.message}`);
+  }
+
   if (result.ignored) return;
 
   try {
