@@ -27,7 +27,7 @@ client.once(Events.ClientReady, (readyClient) => {
 // ─── Message: streak tracking ─────────────────────────────────────────────── 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-  if (message.channel.id !== "1483360122104315997") return;
+  if (message.channel.id !== process.env.STREAK_CHANNEL_ID) return;
 
   if (
     !message.content.toLowerCase().includes("question") ||
@@ -55,8 +55,12 @@ client.on("messageCreate", async (message) => {
     }
   }
 
+  // Extract question name
+  const questionMatch = message.content.match(/Question[:\s]*(.+)/i);
+  const questionName = questionMatch ? questionMatch[1].trim() : "Unknown Question";
+
   // better-sqlite3 is synchronous — no callback needed
-  const result = updateStreak(message.author.id);
+  const result = updateStreak(message.author.id, questionName);
   if (result.ignored) return;
 
   try {
@@ -95,11 +99,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         ephemeral: true,
       });
     }
+    const { getRecentQuestions } = require("./streaksService");
+    const lastQuestions = getRecentQuestions(user.id);
+    const questionsList = lastQuestions.length > 0 ? lastQuestions.map(q => q.question_name).join(", ") : "None";
+
     return interaction.reply(
       `📊 **Profile for <@${user.id}>**\n` +
       `🔥 Current Streak: **${row.streak}** day(s)\n` +
       `🏆 Longest Streak: **${row.longest_streak}** day(s)\n` +
-      `📝 Questions Solved: **${row.questions_solved}**\n` +
+      `📝 Total Questions: **${row.questions_solved}**\n` +
+      `🕒 Recent: *${questionsList}*\n` +
       `📅 Last Post: **${row.last_post_date}**`
     );
   }

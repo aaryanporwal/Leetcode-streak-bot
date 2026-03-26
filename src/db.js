@@ -12,7 +12,15 @@ db.exec(`
     longest_streak INTEGER DEFAULT 0,
     last_post_date TEXT,
     questions_solved INTEGER DEFAULT 0
-  )
+  );
+
+  CREATE TABLE IF NOT EXISTS user_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    question_name TEXT,
+    timestamp TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(user_id)
+  );
 `);
 
 // Migration: add questions_solved column if it doesn't exist yet
