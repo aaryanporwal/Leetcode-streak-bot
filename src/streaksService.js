@@ -10,62 +10,86 @@ function getYesterday() {
   return d.toISOString().slice(0, 10);
 }
 
-function updateStreak(userId, callback) {
+function updateStreak(userId, questionName = "Unknown Question") {
   const today = getToday();
   const yesterday = getYesterday();
 
-  db.get(`SELECT * FROM users WHERE user_id=?`, [userId], (err, row) => {
-    if (err) return callback(err);
+  const row = db
+    .prepare(`SELECT * FROM users WHERE user_id = ?`)
+    .get(userId);
 
-    if (!row) {
-      db.run(
-        `INSERT INTO users (user_id, streak, longest_streak, last_post_date) VALUES (?, 1, 1, ?)`,
-        [userId, today],
-        function (err) {
-          if (err) return callback(err);
-          callback(null, { streak: 1, longest: 1, isNew: true });
-        },
-      );
-      return;
-    }
+  // 🆕 New user
+  if (!row) {
+    db.prepare(`
+      INSERT INTO users (user_id, streak, longest_streak, last_post_date, questions_solved)
+      VALUES (?, 1, 1, ?, 1)
+    `).run(userId, today);
 
-    // already counted today
-    if (row.last_post_date === today) {
-      return callback(null, { ignored: true, streak: row.streak });
-    }
+    db.prepare(`
+      INSERT INTO user_questions (user_id, question_name, timestamp)
+      VALUES (?, ?, ?)
+    `).run(userId, questionName, new Date().toISOString());
 
-    let newStreak = 1;
-    if (row.last_post_date === yesterday) {
-      newStreak = row.streak + 1;
-    }
+    return { streak: 1, longest: 1, isNew: true };
+  }
 
-    const longest = Math.max(row.longest_streak, newStreak);
+  // 🚫 Already counted today — but still count the question (but check if it's the exact same question, if you want, but user didn't specify that, so I'll just record every entry for now)
+  if (row.last_post_date === today) {
+    db.prepare(`
+      INSERT INTO user_questions (user_id, question_name, timestamp)
+      VALUES (?, ?, ?)
+    `).run(userId, questionName, new Date().toISOString());
 
-    db.run(
-      `
-        UPDATE users
-        SET streak=?, longest_streak=?, last_post_date=?
-        WHERE user_id=?
-      `,
-      [newStreak, longest, today, userId],
-      function (err) {
-        if (err) return callback(err);
-        callback(null, { streak: newStreak, longest });
-      },
-    );
-  });
+    db.prepare(`
+      UPDATE users SET questions_solved = questions_solved + 1 WHERE user_id = ?
+    `).run(userId);
+    return { ignored: true, streak: row.streak };
+  }
+
+  let newStreak = 1;
+
+  // 🔥 Continue streak
+  if (row.last_post_date === yesterday) {
+    newStreak = row.streak + 1;
+  }
+
+  const longest = Math.max(row.longest_streak, newStreak);
+
+  db.prepare(`
+    UPDATE users
+    SET streak = ?, longest_streak = ?, last_post_date = ?, questions_solved = questions_solved + 1
+    WHERE user_id = ?
+  `).run(newStreak, longest, today, userId);
+
+  db.prepare(`
+    INSERT INTO user_questions (user_id, question_name, timestamp)
+    VALUES (?, ?, ?)
+  `).run(userId, questionName, new Date().toISOString());
+
+  return { streak: newStreak, longest };
 }
 
-function getLeaderboard(callback) {
-  db.all(`SELECT user_id, streak FROM users ORDER BY streak DESC`, callback);
+function getLeaderboard() {
+  return db
+    .prepare(`SELECT user_id, streak, questions_solved FROM users ORDER BY streak DESC`)
+    .all();
 }
 
-function getUser(userId, callback) {
-  db.get(`SELECT * FROM users WHERE user_id=?`, [userId], callback);
+function getUser(userId) {
+  return db
+    .prepare(`SELECT * FROM users WHERE user_id = ?`)
+    .get(userId);
+}
+
+function getRecentQuestions(userId, limit = 3) {
+  return db
+    .prepare(`SELECT question_name FROM user_questions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?`)
+    .all(userId, limit);
 }
 
 module.exports = {
   updateStreak,
   getLeaderboard,
   getUser,
+  getRecentQuestions,
 };

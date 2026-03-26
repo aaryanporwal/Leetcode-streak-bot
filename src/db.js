@@ -1,19 +1,33 @@
-const sqlite3 = require("sqlite3").verbose();
-const db = new sqlite3.Database("data.db");
+const path = require("path");
+const Database = require("better-sqlite3");
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      user_id TEXT PRIMARY KEY,
-      streak INTEGER DEFAULT 0,
-      longest_streak INTEGER DEFAULT 0,
-      last_post_date TEXT
-    )
-  `, (err) => {
-    if (err) {
-      console.error("Error creating table:", err.message);
-    }
-  });
-});
+const dbPath = process.env.DB_PATH || path.join(__dirname, "..", "data.db");
+console.log(`Using database at: ${dbPath}`);
+const db = new Database(dbPath);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    streak INTEGER DEFAULT 0,
+    longest_streak INTEGER DEFAULT 0,
+    last_post_date TEXT,
+    questions_solved INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS user_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    question_name TEXT,
+    timestamp TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(user_id)
+  );
+`);
+
+// Migration: add questions_solved column if it doesn't exist yet
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN questions_solved INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists — ignore
+}
 
 module.exports = db;
