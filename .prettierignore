@@ -1,0 +1,7 @@
+node_modules
+data.db
+.env
+package-lock.json
+bun.lock
+user_questions_with_timestamps.csv
+.gemini
