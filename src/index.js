@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const {
@@ -5,7 +6,7 @@ const {
   GatewayIntentBits,
   Events,
 } = require("discord.js");
-const { updateStreak, getLeaderboard, getUser } = require("./streaksService");
+const { updateStreak, getLeaderboard, getUser, getRecentQuestions } = require("./streaksService");
 
 const client = new Client({
   intents: [
@@ -13,6 +14,15 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+});
+
+// ─── Error Handling ──────────────────────────────────────────────────────────
+client.on(Events.Error, (error) => {
+  console.error("Discord Client Error:", error);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled promise rejection:", error);
 });
 
 // ─── Ready ───────────────────────────────────────────────────────────────────
@@ -41,8 +51,8 @@ client.on("messageCreate", async (message) => {
       // Delete both messages after 2 seconds
       setTimeout(async () => {
         try {
-          await message.delete();
-          await reply.delete();
+          if (message.deletable) await message.delete();
+          if (reply.deletable) await reply.delete();
         } catch (err) {
           console.error(`Failed to delete messages: ${err.message}`);
         }
@@ -76,60 +86,80 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   const { commandName, user } = interaction;
 
-  // /streak
-  if (commandName === "streak") {
-    const row = getUser(user.id);
-    if (!row) {
-      return interaction.reply({
-        content: "You haven't posted any solutions yet! Start your streak by posting in the streak channel.",
+  try {
+    // /streak
+    if (commandName === "streak") {
+      const row = getUser(user.id);
+      if (!row) {
+        return interaction.reply({
+          content: "You haven't posted any solutions yet! Start your streak by posting in the streak channel.",
+          ephemeral: true,
+        });
+      }
+      return interaction.reply(
+        `🔥 <@${user.id}>'s current streak: **${row.streak}** day(s)`
+      );
+    }
+
+    // /profile
+    if (commandName === "profile") {
+      // Defer reply to prevent "Unknown interaction" timeout error
+      await interaction.deferReply();
+
+      const row = getUser(user.id);
+      if (!row) {
+        return interaction.editReply({
+          content: "No profile found yet. Post your first solution to get started!",
+          ephemeral: true,
+        });
+      }
+      
+      const lastQuestions = getRecentQuestions(user.id);
+      const questionsList = lastQuestions.length > 0 
+        ? lastQuestions.map(q => `• ${q.question_name}`).filter(Boolean).join("\n") 
+        : "None";
+
+      return interaction.editReply(
+        `📊 **Profile for <@${user.id}>**\n` +
+        `🔥 Current Streak: **${row.streak}** day(s)\n` +
+        `🏆 Longest Streak: **${row.longest_streak}** day(s)\n` +
+        `📝 Total Questions: **${row.questions_solved}**\n` +
+        `🕒 Recent 3:\n${questionsList}\n` +
+        `📅 Last Post: **${row.last_post_date || "Never"}**`
+      );
+    }
+
+    // /leaderboard
+    if (commandName === "leaderboard") {
+      await interaction.deferReply();
+
+      const rows = getLeaderboard();
+      if (!rows.length) {
+        return interaction.editReply("No streaks yet — be the first to post!");
+      }
+
+      const medals = ["🥇", "🥈", "🥉"];
+      const board = rows
+        .slice(0, 10)
+        .map((r, i) => {
+          const medal = medals[i] ?? `${i + 1}.`;
+          return `${medal} <@${r.user_id}> — **${r.streak}** day(s) | **${r.questions_solved}** solved`;
+        })
+        .join("\n");
+
+      return interaction.editReply(`🏆 **Leaderboard**\n\n${board}`);
+    }
+  } catch (error) {
+    console.error(`Error handling command ${commandName}:`, error);
+    const replyMethod = interaction.deferred ? "editReply" : "reply";
+    try {
+      await interaction[replyMethod]({
+        content: "There was an error while executing this command!",
         ephemeral: true,
       });
+    } catch (innerError) {
+      console.error("Failed to send error message:", innerError);
     }
-    return interaction.reply(
-      `🔥 <@${user.id}>'s current streak: **${row.streak}** day(s)`
-    );
-  }
-
-  // /profile
-  if (commandName === "profile") {
-    const row = getUser(user.id);
-    if (!row) {
-      return interaction.reply({
-        content: "No profile found yet. Post your first solution to get started!",
-        ephemeral: true,
-      });
-    }
-    const { getRecentQuestions } = require("./streaksService");
-    const lastQuestions = getRecentQuestions(user.id);
-    const questionsList = lastQuestions.length > 0 ? lastQuestions.map(q => q.question_name).join(", ") : "None";
-
-    return interaction.reply(
-      `📊 **Profile for <@${user.id}>**\n` +
-      `🔥 Current Streak: **${row.streak}** day(s)\n` +
-      `🏆 Longest Streak: **${row.longest_streak}** day(s)\n` +
-      `📝 Total Questions: **${row.questions_solved}**\n` +
-      `🕒 Recent: *${questionsList}*\n` +
-      `📅 Last Post: **${row.last_post_date}**`
-    );
-  }
-
-  // /leaderboard
-  if (commandName === "leaderboard") {
-    const rows = getLeaderboard();
-    if (!rows.length) {
-      return interaction.reply("No streaks yet — be the first to post!");
-    }
-
-    const medals = ["🥇", "🥈", "🥉"];
-    const board = rows
-      .slice(0, 10)
-      .map((r, i) => {
-        const medal = medals[i] ?? `${i + 1}.`;
-        return `${medal} <@${r.user_id}> — **${r.streak}** day(s) | **${r.questions_solved}** solved`;
-      })
-      .join("\n");
-
-    return interaction.reply(`🏆 **Leaderboard**\n\n${board}`);
   }
 });
 

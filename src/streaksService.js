@@ -81,7 +81,7 @@ function getUser(userId) {
     .get(userId);
 }
 
-function getRecentQuestions(userId, limit = 5) {
+function getRecentQuestions(userId, limit = 3) {
   return db
     .prepare(`SELECT question_name FROM user_questions WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?`)
     .all(userId, limit);
