@@ -7,6 +7,7 @@ const {
   getUser,
   getRecentQuestions,
 } = require("./streaksService");
+const { getNextProblem } = require("./nextProblemService");
 
 const client = new Client({
   intents: [
@@ -16,7 +17,7 @@ const client = new Client({
   ],
 });
 
-// ─── Error Handling ──────────────────────────────────────────────────────────
+// Error Handling
 client.on(Events.Error, (error) => {
   console.error("Discord Client Error:", error);
 });
@@ -25,7 +26,7 @@ process.on("unhandledRejection", (error) => {
   console.error("Unhandled promise rejection:", error);
 });
 
-// ─── Ready ───────────────────────────────────────────────────────────────────
+// Ready
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
   console.log(`Bot is in ${readyClient.guilds.cache.size} guilds:`);
@@ -34,7 +35,7 @@ client.once(Events.ClientReady, (readyClient) => {
   });
 });
 
-// ─── Message: streak tracking ───────────────────────────────────────────────
+// Message: streak tracking
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (message.channel.id !== process.env.STREAK_CHANNEL_ID) return;
@@ -84,7 +85,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// ─── Slash Commands ───────────────────────────────────────────────────────────
+// Slash Commands
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -160,6 +161,44 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.editReply(`🏆 **Leaderboard**\n\n${board}`, {
         allowedMentions: { users: [] },
       });
+    }
+
+    // /next-problem
+    if (commandName === "next-problem") {
+      await interaction.deferReply();
+
+      const recommendation = await getNextProblem(user.id);
+
+      if (!recommendation) {
+        return interaction.editReply({
+          content:
+            "No solve history found! Post some solutions first so I can analyze your weaknesses.",
+          ephemeral: true,
+        });
+      }
+
+      if (recommendation.error === "all_solved") {
+        return interaction.editReply(
+          "🎉 Incredible — you've solved every problem in the dataset! Time to touch grass. 🌿",
+        );
+      }
+
+      const p = recommendation.recommended_problem;
+      const diffEmoji =
+        p.difficulty === "Easy"
+          ? "🟢"
+          : p.difficulty === "Medium"
+            ? "🟡"
+            : "🔴";
+
+      return interaction.editReply(
+        `🧠 **Next Problem for <@${user.id}>**\n\n` +
+          `${diffEmoji} **${p.title}** (LC #${p.id})\n` +
+          `📊 Difficulty: **${p.difficulty}**\n` +
+          `🏷️ Topics: ${p.topics.map((t) => `\`${t}\``).join(", ")}\n` +
+          `🔗 https://leetcode.com/problems/${p.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}/\n\n` +
+          `💡 *${recommendation.reasoning}*`,
+      );
     }
   } catch (error) {
     console.error(`Error handling command ${commandName}:`, error);

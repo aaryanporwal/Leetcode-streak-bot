@@ -16,7 +16,7 @@ function updateStreak(userId, questionName = "Unknown Question") {
 
   const row = db.prepare(`SELECT * FROM users WHERE user_id = ?`).get(userId);
 
-  // 🆕 New user
+  // New user
   if (!row) {
     db.prepare(
       `
@@ -35,7 +35,7 @@ function updateStreak(userId, questionName = "Unknown Question") {
     return { streak: 1, longest: 1, isNew: true };
   }
 
-  // 🚫 Already counted today — but still count the question (but check if it's the exact same question, if you want, but user didn't specify that, so I'll just record every entry for now)
+  // Already counted today, but still count the question (but check if it's the exact same question, if you want, but user didn't specify that, so I'll just record every entry for now)
   if (row.last_post_date === today) {
     db.prepare(
       `

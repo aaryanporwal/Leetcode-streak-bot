@@ -27,7 +27,7 @@ db.exec(`
 try {
   db.exec(`ALTER TABLE users ADD COLUMN questions_solved INTEGER DEFAULT 0`);
 } catch (e) {
-  // Column already exists — ignore
+  // Column already exists, ignore
 }
 
 module.exports = db;
