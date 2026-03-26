@@ -27,22 +27,32 @@ function getUserStats(userId) {
 /**
  * Build the prompt and call Gemini to get a single problem recommendation.
  * Returns the parsed JSON response from Gemini.
+ * @param {string} userId - Discord user ID
+ * @param {string[]} excludeIds - List of problem IDs to exclude (optional)
+ * @param {boolean} randomRecommend - If true, ask for a random recommendation (optional)
  */
-async function getNextProblem(userId) {
+async function getNextProblem(
+  userId,
+  excludeIds = [],
+  randomRecommend = false
+) {
   const solvedQuestions = getUserSolvedQuestions(userId);
   const userStats = getUserStats(userId);
 
   if (!userStats || solvedQuestions.length === 0) {
-    return null; // No data to reason from
+    if (!randomRecommend) return null; // Can still recommend random if needed
   }
 
   // Build a list of solved problem names for matching
-  const solvedNames = solvedQuestions.map((q) => q.question_name);
+  const solvedNames = solvedQuestions
+    ? solvedQuestions.map((q) => q.question_name)
+    : [];
 
-  // Filter the dataset to exclude already solved problems (fuzzy match on title)
+  // Filter the dataset to exclude already solved problems (and specifically excluded ones)
   const solvedLower = solvedNames.map((n) => n.toLowerCase().trim());
   const candidateProblems = LEETCODE_PROBLEMS.filter(
     (p) =>
+      !excludeIds.includes(p.id) &&
       !solvedLower.some(
         (s) =>
           s === p.title.toLowerCase() ||
@@ -55,21 +65,32 @@ async function getNextProblem(userId) {
     return { error: "all_solved" };
   }
 
-  const prompt = `You are a strict, data-driven LeetCode coach. Your job is to recommend exactly ONE problem for a user to solve next.
+  let prompt;
+  if (randomRecommend) {
+    prompt = `You are a LeetCode coach. Your job is to recommend exactly ONE RANDOM problem for a user to solve next from the available list.
+    
+    ## Available Candidate Problems (ONLY pick from this list)
+    ${JSON.stringify(candidateProblems.slice(0, 100), null, 2)}
+    
+    ## Logic
+    - Pick ONE problem at random.
+    - Match ID, title, difficulty, and topics EXACTLY.`;
+  } else {
+    prompt = `You are a strict, data-driven LeetCode coach. Your job is to recommend exactly ONE problem for a user to solve next.
 
 ## User Data
 
 **Solved Problems (most recent first):**
-${solvedNames.map((name, i) => `${i + 1}. ${name}`).join("\n")}
+${solvedNames.length > 0 ? solvedNames.map((name, i) => `${i + 1}. ${name}`).join("\n") : "No problems solved yet."}
 
 **User Stats:**
-- Current streak: ${userStats.streak} day(s)
-- Longest streak: ${userStats.longest_streak} day(s)
-- Total questions solved: ${userStats.questions_solved}
+- Current streak: ${userStats ? userStats.streak : 0} day(s)
+- Longest streak: ${userStats ? userStats.longest_streak : 0} day(s)
+- Total questions solved: ${userStats ? userStats.questions_solved : 0}
 
 ## Available Candidate Problems (ONLY pick from this list)
 
-${JSON.stringify(candidateProblems, null, 2)}
+${JSON.stringify(candidateProblems.slice(0, 100), null, 2)}
 
 ## Decision Logic (follow EXACTLY)
 
@@ -88,6 +109,7 @@ ${JSON.stringify(candidateProblems, null, 2)}
 4. **Return EXACTLY ONE problem from the candidate list above.**
 
 IMPORTANT: The id, title, difficulty, and topics in your response MUST exactly match one entry from the candidate list. Do NOT invent or modify problem details.`;
+  }
 
   // Structured output schema (raw JSON Schema)
   const responseSchema = {
@@ -119,21 +141,48 @@ IMPORTANT: The id, title, difficulty, and topics in your response MUST exactly m
     required: ["recommended_problem", "reasoning"],
   };
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-lite-preview",
-    contents: prompt,
-    config: {
-      temperature: 0.2,
-      responseMimeType: "application/json",
-      responseJsonSchema: responseSchema, // Gemini supports structured output
-    },
-  });
+  const modelsToTry = [
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash-lite",
+    "gemini-1.5-flash",
+  ];
+  let response;
+  let lastError;
 
-  const text = response.text;
-  const parsed = JSON.parse(text);
+  for (const modelName of modelsToTry) {
+    try {
+      response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          temperature: randomRecommend ? 0.7 : 0.2, // Higher temperature for random
+          responseMimeType: "application/json",
+          responseJsonSchema: responseSchema, // Gemini supports structured output
+        },
+      });
+      if (response) {
+        if (lastError) {
+          console.log(`Successfully recovered using model ${modelName}.`);
+        }
+        break; // Success!
+      }
+    } catch (error) {
+      if (error.status !== 503) {
+        throw error;
+      }
+      lastError = error;
+      console.warn(`Model ${modelName} busy (503), trying next...`);
+    }
+  }
+
+  if (!response) {
+    throw lastError; // Re-throw the last error if all models failed
+  }
+
+  const text = JSON.parse(response.text);
+  const recommended = text.recommended_problem;
 
   // Validate that the recommended problem exists in our dataset
-  const recommended = parsed.recommended_problem;
   const match = candidateProblems.find(
     (p) =>
       p.id === recommended.id ||
@@ -146,11 +195,13 @@ IMPORTANT: The id, title, difficulty, and topics in your response MUST exactly m
     console.warn(
       "Gemini recommended a problem not in the dataset, using fallback."
     );
-    const fallback = candidateProblems[0];
+    const fallback =
+      candidateProblems[Math.floor(Math.random() * candidateProblems.length)];
     return {
       recommended_problem: fallback,
-      reasoning:
-        "AI recommendation was invalid; here is the next available problem for you.",
+      reasoning: randomRecommend
+        ? "AI recommendation was invalid; here is a random problem for you."
+        : "AI recommendation was invalid; here is the next available problem for you.",
     };
   }
 
@@ -162,7 +213,7 @@ IMPORTANT: The id, title, difficulty, and topics in your response MUST exactly m
       difficulty: match.difficulty,
       topics: match.topics,
     },
-    reasoning: parsed.reasoning,
+    reasoning: text.reasoning,
   };
 }
 

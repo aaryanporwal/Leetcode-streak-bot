@@ -1,6 +1,13 @@
 require("dotenv").config();
 
-const { Client, GatewayIntentBits, Events } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  Events,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const {
   updateStreak,
   getLeaderboard,
@@ -167,49 +174,169 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (commandName === "next-problem") {
       await interaction.deferReply();
 
-      const recommendation = await getNextProblem(user.id);
+      try {
+        const recommendation = await getNextProblem(user.id);
 
-      if (!recommendation) {
+        if (!recommendation) {
+          return interaction.editReply({
+            content:
+              "No solve history found! Post some solutions first so I can analyze your weaknesses.",
+            ephemeral: true,
+          });
+        }
+
+        if (recommendation.error === "all_solved") {
+          return interaction.editReply(
+            "🎉 Incredible — you've solved every problem in the dataset! Time to touch grass. 🌿"
+          );
+        }
+
+        const p = recommendation.recommended_problem;
+        const diffEmoji =
+          p.difficulty === "Easy" ? "🟢" : p.difficulty === "Medium" ? "🟡" : "🔴";
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`next_problem_next_${p.id}`)
+            .setLabel("Next 🧠")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`next_problem_random_${p.id}`)
+            .setLabel("Random 🎲")
+            .setStyle(ButtonStyle.Secondary)
+        );
+
         return interaction.editReply({
           content:
-            "No solve history found! Post some solutions first so I can analyze your weaknesses.",
+            `🧠 **Next Problem for <@${user.id}>**\n\n` +
+            `${diffEmoji} **${p.title}** (LC #${p.id})\n` +
+            `📊 Difficulty: **${p.difficulty}**\n` +
+            `🏷️ Topics: ${p.topics.map((t) => `\`${t}\``).join(", ")}\n` +
+            `🔗 https://leetcode.com/problems/${p.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}/\n\n` +
+            `💡 *${recommendation.reasoning}*`,
+          components: [row],
+        });
+      } catch (geminiError) {
+        console.error("Gemini API Error in /next-problem:", geminiError);
+        return interaction.editReply({
+          content: "⚠️ **Gemini is feeling a bit overwhelmed right now.** (503 Service Unavailable)\n\nPlease try again in a few minutes! Your stats and history are safe.",
           ephemeral: true,
         });
       }
+    }
+  } catch (error) {
+    console.error(`Error handling command ${commandName}:`, error);
+    
+    // Check if interaction can still be replied to
+    if (!interaction.replied && !interaction.deferred) {
+      try {
+        await interaction.reply({
+          content: "There was an error while executing this command!",
+          ephemeral: true,
+        });
+      } catch (err) {
+        console.error("Failed to send error reply:", err);
+      }
+    } else if (interaction.deferred || interaction.replied) {
+      try {
+        await interaction.editReply({
+          content: "There was an error while executing this command!",
+          components: [], // Remove any stale buttons
+        });
+      } catch (err) {
+        console.error("Failed to edit error reply:", err);
+      }
+    }
+  }
+});
 
-      if (recommendation.error === "all_solved") {
-        return interaction.editReply(
-          "🎉 Incredible — you've solved every problem in the dataset! Time to touch grass. 🌿",
-        );
+// Button Handlers
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  const { customId, user } = interaction;
+
+  if (
+    customId.startsWith("next_problem_next_") ||
+    customId.startsWith("next_problem_random_")
+  ) {
+    // Check if the user clicking is the same one who initiated the command
+    if (interaction.message.content.includes(`<@${user.id}>`) === false) {
+      return interaction.reply({
+        content: "This recommendation isn't for you! Use `/next-problem` to get your own.",
+        ephemeral: true,
+      });
+    }
+
+    await interaction.deferUpdate();
+
+    // Show loading state by disabling buttons and adding a loading indicator
+    const loadingRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("disabled_next")
+        .setLabel("Thinking...")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(true),
+      new ButtonBuilder()
+        .setCustomId("disabled_random")
+        .setLabel("Random 🎲")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true)
+    );
+
+    await interaction.editReply({
+      content: interaction.message.content + "\n\n⏳ *Gemini is thinking...*",
+      components: [loadingRow],
+    });
+
+    const isRandom = customId.startsWith("next_problem_random_");
+    const currentId = customId.split("_").pop();
+
+    try {
+      const recommendation = await getNextProblem(
+        user.id,
+        [currentId],
+        isRandom
+      );
+
+      if (!recommendation || recommendation.error === "all_solved") {
+        return interaction.editReply({
+          content: "No more problems found or an error occurred.",
+          components: [],
+        });
       }
 
       const p = recommendation.recommended_problem;
       const diffEmoji =
-        p.difficulty === "Easy"
-          ? "🟢"
-          : p.difficulty === "Medium"
-            ? "🟡"
-            : "🔴";
+        p.difficulty === "Easy" ? "🟢" : p.difficulty === "Medium" ? "🟡" : "🔴";
 
-      return interaction.editReply(
-        `🧠 **Next Problem for <@${user.id}>**\n\n` +
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`next_problem_next_${p.id}`)
+          .setLabel("Next 🧠")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`next_problem_random_${p.id}`)
+          .setLabel("Random 🎲")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      return interaction.editReply({
+        content:
+          `🧠 **${isRandom ? "Random" : "Next"} Problem for <@${user.id}>**\n\n` +
           `${diffEmoji} **${p.title}** (LC #${p.id})\n` +
           `📊 Difficulty: **${p.difficulty}**\n` +
           `🏷️ Topics: ${p.topics.map((t) => `\`${t}\``).join(", ")}\n` +
           `🔗 https://leetcode.com/problems/${p.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}/\n\n` +
           `💡 *${recommendation.reasoning}*`,
-      );
-    }
-  } catch (error) {
-    console.error(`Error handling command ${commandName}:`, error);
-    const replyMethod = interaction.deferred ? "editReply" : "reply";
-    try {
-      await interaction[replyMethod]({
-        content: "There was an error while executing this command!",
-        ephemeral: true,
+        components: [row],
       });
-    } catch (innerError) {
-      console.error("Failed to send error message:", innerError);
+    } catch (geminiError) {
+      console.error("Gemini API Error in button click:", geminiError);
+      return interaction.editReply({
+        content: interaction.message.content + "\n\n ⚠️ **Gemini is busy.** Please try clicking again in a few seconds.",
+        components: interaction.message.components, // Restore previous buttons so user can retry
+      });
     }
   }
 });
